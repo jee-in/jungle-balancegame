@@ -6,7 +6,7 @@ from pymongo import MongoClient
 import jwt
 import datetime
 from functools import wraps
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
 import os
 import json
 
@@ -49,14 +49,41 @@ def list_question():
     sort_mode = request.args.get('sortMode', 'likes')  # 기본 정렬 값: 좋아요 순
     is_desc = -1  # 기본 정렬 방향: 내림차순
 
-    questions_cursor = db.questions.find({'category': category_mode}).sort(sort_mode, is_desc)
+    questions_cursor = db.questions.aggregate([
+        {'$match': {'category': category_mode}},
+        {'$sort': {sort_mode: is_desc}},
+        {
+            '$lookup': {
+                'from': 'Member',
+                'localField': 'member_id',
+                'foreignField': '_id',
+                'as': 'member_info'
+            }
+        },
+        {
+            '$unwind': '$member_info'
+        },
+        {
+            '$project': {
+                '_id': 1,
+                'category': 1,
+                'question1': 1,
+                'question2': 1,
+                'created_at': 1,
+                'participant_count': 1,
+                'likes_count': 1,
+                'nickname': '$member_info.nickname'
+            }
+        }
+    ])
+
     questions_list = list(questions_cursor)  # Cursor 객체를 리스트로 변환
 
     return jsonify({'questions': questions_list})
 
 
 # .env 파일 로드
-load_dotenv()
+#load_dotenv()
 
 # 환경 변수에서 secret key 로드
 app.secret_key = os.getenv('SECRET_KEY')
@@ -158,7 +185,7 @@ def logout():
     session.pop('token', None)
     flash('You have successfully logged out', 'success')
     return redirect(url_for('home'))
-  
+
 # 질문 페이지
 @app.route('/question', methods=['GET'])
 def question():
@@ -229,4 +256,3 @@ def createQuestion(current_user):
 
 if __name__ == '__main__':
     app.run('0.0.0.0', port=5000, debug=True)
-

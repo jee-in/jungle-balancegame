@@ -247,13 +247,14 @@
 
     // 파라미터로 전달받은 질문을 화면에 띄우기
     function addQuestionCard(questions) {
-        console.log('하이용');
+        console.log('addQuestionCard 함수 호출');
         for (let i = 0; i < questions.length; i++) {
             let category = questions[i]['category'];
             let qId = questions[i]['_id']
             let q1 = questions[i]['question1'];
             let q2 = questions[i]['question2']
 
+            let nickname = questions[i]['nickname'];
             let createdAt = questions[i]['created_at'];
             let partiCount = questions[i]['participant_count'];
             let likesCount = questions[i]['likes_count'];
@@ -266,7 +267,7 @@
                             <p class="title is-4">
                                 <span>${q1}</span> VS <span>${q2}<span>
                             </p>
-                            <p class="subtitle is-6">작성자 불러오기 보류</p>
+                            <p class="subtitle is-6">${nickname}</p>
                         </div>
                     </div>
                     <div class="question-card-footer">
@@ -287,7 +288,7 @@
             $('#question-list').append(card);
         }
 
-        // 질문 카드를 클릭하면 질문 페이지로 이동
+        //질문 카드를 클릭하면 질문 페이지로 이동
         // let questionClickEventList = document.querySelectorAll(".category-card");
         // questionClickEventList.forEach(function (question) {
 
