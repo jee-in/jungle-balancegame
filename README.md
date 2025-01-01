@@ -44,22 +44,6 @@
   <img src="https://img.shields.io/badge/bulma-00D1B2?style=for-the-badge&logo=bulma&logoColor=white">
 </div>
 
-## ERD 설계와 API 명세
-<table>
-  <thead>
-    <tr>
-      <th>ERD 설계</th>
-      <th>API 명세</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><img width="1077" alt="image" src="https://github.com/user-attachments/assets/72b2537b-1e07-4d91-b7c6-25394a3a08a5" /></td>
-      <td><img width="757" alt="image" src="https://github.com/user-attachments/assets/d3f28b53-e918-4b89-9c35-2d3d1725565f" /></td>
-    </tr>
-  </tbody>
-</table>
-
 ## 화면
 <table style="width: 100%;">
   <thead>
@@ -74,6 +58,22 @@
       <td><img width="660" alt="image" src="https://github.com/user-attachments/assets/d002584b-1059-4159-9635-89834ef8dc6c" /></td>
       <td><img width="649" alt="image" src="https://github.com/user-attachments/assets/a70c8d8c-022e-43bf-84fe-5a620b616943" /></td>
       <td><img width="665" alt="image" src="https://github.com/user-attachments/assets/707984ba-8fd1-4be8-a0d1-d53050dda445" /></td>
+    </tr>
+  </tbody>
+</table>
+
+## ERD 설계와 API 명세
+<table>
+  <thead>
+    <tr>
+      <th>ERD 설계</th>
+      <th>API 명세</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><img width="1077" alt="image" src="https://github.com/user-attachments/assets/72b2537b-1e07-4d91-b7c6-25394a3a08a5" /></td>
+      <td><img width="757" alt="image" src="https://github.com/user-attachments/assets/d3f28b53-e918-4b89-9c35-2d3d1725565f" /></td>
     </tr>
   </tbody>
 </table>
