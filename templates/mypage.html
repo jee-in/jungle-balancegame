@@ -7,7 +7,8 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <title>My Page</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.8.0/css/bulma.min.css">
-    <link rel="stylesheet" href="../static/css/base.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}" />
 </head>
 <body>
 <!-- 헤더 -->
@@ -36,18 +37,109 @@
     <div class="container">
         <h1 class="title">My Page</h1>
         <h2>참여한 밸런스 게임 목록</h2>
-        <br>
+        <div id="participated-question-list" class="question-card-wrap"></div>
         <br>
         <h2>생성한 밸런스 게임 목록</h2>
-        <br>
+        <div id="created-question-list" class="question-card-wrap"></div>
         <br>
         <h2>좋아요 누른 밸런스 게임 목록</h2>
+        <div id="liked-question-list" class="question-card-wrap"></div>
     </div>
 </section>
 <script>
     $(document).ready(function () {
         showLoginStatus();
+
+        fetchParticipatedQuestions();
+        fetchCreatedQuestions();
+        fetchLikedQuestions();
     })
+
+    function addQuestionCard(questions, containerId) {
+        $('#question-list').empty();
+
+        for (let i = 0; i < questions.length; i++) {
+            let category = questions[i]['category'];
+            let qId = questions[i]['_id'];
+            let q1 = questions[i]['question1'];
+            let q2 = questions[i]['question2'];
+            let createdAt = new Date(questions[i]['created_at']).toLocaleDateString();
+
+            let card =
+                `<div id="${category}-${qId}" class="question-card card" onclick="window.location.href='/question/${qId}'">
+                    <input class="question-id" type=hidden value="${qId}">
+                    <div class="card-content">
+                        <div class="media">
+                            <div class="media-content">
+                                <p class="title is-4">
+                                    <span>${q1}</span> VS <span>${q2}</span>
+                                </p>
+                            </div>
+                        </div>
+                </div>`;
+            $(`#${containerId}`).append(card);
+        }
+    }
+
+    function fetchParticipatedQuestions() {
+        const token = localStorage.getItem('accessToken');
+        if (!token) {
+            alert('로그인이 필요합니다');
+            return;
+        }
+
+        $.ajax({
+            url: '/api/questions/participated',
+            type: 'GET',
+            headers: { Authorization: 'Bearer ' + token },
+            success: function(res) {
+                addQuestionCard(res.questions, "participated-question-list");
+            },
+            error: function() {
+                alert('참여한 질문 목록을 불러오지 못했습니다.');
+            }
+        });
+    }
+
+    function fetchCreatedQuestions() {
+        const token = localStorage.getItem('accessToken');
+        if (!token) {
+            alert('로그인이 필요합니다');
+            return;
+        }
+
+        $.ajax({
+            url: '/api/questions/created',
+            type: 'GET',
+            headers: { Authorization: 'Bearer ' + token },
+            success: function(res) {
+                addQuestionCard(res.questions, "created-question-list");
+            },
+            error: function() {
+                alert('생성한 질문 목록을 불러오지 못했습니다.');
+            }
+        });
+    }
+
+    function fetchLikedQuestions() {
+        const token = localStorage.getItem('accessToken');
+        if (!token) {
+            alert('로그인이 필요합니다');
+            return;
+        }
+
+        $.ajax({
+            url: '/api/questions/liked',
+            type: 'GET',
+            headers: { Authorization: 'Bearer ' + token },
+            success: function(res) {
+                addQuestionCard(res.questions, "liked-question-list");
+            },
+            error: function() {
+                alert('좋아요 누른 질문 목록을 불러오지 못했습니다.');
+            }
+        });
+    }
 
     // 로그인 상태일 경우: 토큰 디코딩해서 사용자 정보 요청
     function showLoginStatus() {

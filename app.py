@@ -360,26 +360,20 @@ def clickQuestion(member_id, question_id):
     if not member_id:
         return jsonify({'result': 'fail', 'msg': '로그인 후 사용 가능합니다'})
 
-    questionId = ObjectId(question_id)
     check = request.form['questionNum']
-
-    findData = {
-        'member_id': member_id,
-        'question_id': questionId
-    }
+    findData = {'member_id': ObjectId(member_id), 'question_id': ObjectId(question_id)}
     checkData = db.check.find_one(findData)
 
-    data = {
-        'member_id': member_id,
-        'question_id': questionId,
-        'check': check
-    }
     if not checkData:
-        db.check.insert_one(data)
+        db.check.insert_one({
+        'member_id': ObjectId(member_id),
+        'question_id': ObjectId(question_id),
+        'check': check
+        })
     elif check != checkData['check']:
         db.check.update_one(findData, {'$set': {'check': check}})
-    participant_count = db.check.count_documents({'question_id': questionId})
-    same_check_count = db.check.count_documents({'question_id': questionId, 'check': check})
+    participant_count = db.check.count_documents({'question_id': ObjectId(question_id)})
+    same_check_count = db.check.count_documents({'question_id': ObjectId(question_id), 'check': check})
     check_percent = round((same_check_count / participant_count) * 100, 2)
     statistics_data = {
         'same_check_count': same_check_count,
@@ -395,14 +389,13 @@ def showQuestionCheck(member_id, question_id):
     if not member_id:
         return jsonify({'result': 'fail', 'msg': '로그인 후 사용 가능합니다'})
 
-    questionId = ObjectId(question_id)
-    checkData = db.check.find_one({'member_id': member_id, 'question_id': questionId})
-    participant_count = db.check.count_documents({'question_id': questionId})
+    checkData = db.check.find_one({'member_id': ObjectId(member_id), 'question_id': ObjectId(question_id)})
+    participant_count = db.check.count_documents({'question_id': ObjectId(question_id)})
 
     if not checkData:
         return jsonify({'result': 'success', 'msg': '질문 선택 조회 완료!', 'checked': None, 'participant_count': participant_count, 'statistics_data': None})
 
-    same_check_count = db.check.count_documents({'question_id': questionId, 'check': checkData['check']})
+    same_check_count = db.check.count_documents({'question_id': ObjectId(question_id), 'check': checkData['check']})
     check_percent = round((same_check_count / participant_count) * 100, 2)
     statistics_data = {
         'same_check_count': same_check_count,
@@ -410,6 +403,38 @@ def showQuestionCheck(member_id, question_id):
     }
 
     return jsonify({'result': 'success', 'msg': '질문 선택 조회 완료!', 'checked': checkData['check'], 'participant_count': participant_count, 'statistics_data': statistics_data})
+
+@app.route('/api/questions/participated', methods=['GET'])
+@token_required
+def questions_participated(member_id):
+    participated_question_ids = db.check.distinct('question_id', {'member_id': ObjectId(member_id)})
+    
+    questions_cursor = db.questions.find({'_id': {'$in': participated_question_ids}})
+    questions = list(questions_cursor)
+    
+    return jsonify({'questions': questions})
+
+
+@app.route('/api/questions/created', methods=['GET'])
+@token_required
+def questions_created(member_id):
+    questions_cursor = db.questions.find({'member_id': ObjectId(member_id)})
+    questions = list(questions_cursor)
+
+    return jsonify({'questions': questions})
+
+
+@app.route('/api/questions/liked', methods=['GET'])
+@token_required
+def questions_liked(member_id):
+    liked_question_ids = db.likes.distinct('question_id', {'member_id': ObjectId(member_id)})
+    
+    questions_cursor = db.questions.find({'_id': {'$in': liked_question_ids}})
+    questions = list(questions_cursor)
+
+    
+    return jsonify({'questions': questions})
+
 
 if __name__ == '__main__':
     app.run('0.0.0.0', port=5001, debug=True)
