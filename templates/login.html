@@ -31,17 +31,7 @@
                 </a>
             </div>
             <div class="nav-main">
-                <div class="field is-grouped">
-                    {% if current_user %}
-                    <div class="member-nickname"><span class="tag is-link is-light">{{ current_user['nickname']
-                            }}</span>님 안녕하세요</div>
-                    <form action="{{ url_for('logout') }}" method="post" style="margin-right: 10px;">
-                        <button class="button">로그아웃</button>
-                    </form>
-                    {% else %}
-                    <a class="button" href="{{ url_for('login') }}">로그인</a>
-                    {% endif %}
-                </div>
+
             </div>
         </nav>
 
@@ -55,15 +45,12 @@
     <section class="section">
         <div class="container">
             <h1 class="title">로그인</h1>
-            {% if message %}
-            <div class="notification {{ 'is-danger' if error else 'is-success' }}">
-                {{ message }}
-            </div>
-            {% endif %}
-            <form action="{{ url_for('login') }}" method="post">
+            <div id="notification" class="notification is-hidden"></div>
+
+          <form id="login-form">
                 <div class="field">
                     <p class="control has-icons-left has-icons-right">
-                        <input class="input" type="text" name="id" placeholder="ID" required>
+                        <input class="input" type="text" id="id" name="id" placeholder="ID" required>
                         <span class="icon is-small is-left">
                             <i class="fas fa-user"></i>
                         </span>
@@ -71,7 +58,7 @@
                 </div>
                 <div class="field">
                     <p class="control has-icons-left">
-                        <input class="input" type="password" name="password" placeholder="Password" required>
+                        <input class="input" type="password" id="password" name="password" placeholder="Password" required>
                         <span class="icon is-small is-left">
                             <i class="fas fa-lock"></i>
                         </span>
@@ -88,5 +75,35 @@
             <p>계정이 없으신가요? <a href="{{ url_for('register') }}">회원가입</a></p>
         </div>
     </section>
+    <script>
+      $('#login-form').submit(function (e) {
+        e.preventDefault();
+
+        const id = $('#id').val();
+        const password = $('#password').val();
+
+        $.ajax({
+            url: '/api/login',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ id: id, password: password }),
+            success: function (response) {
+                if (response.success) {
+                    $('#notification').removeClass('is-hidden is-danger').addClass('is-success').text("로그인에 성공했습니다. 메인 페이지로 이동합니다.");
+                    localStorage.setItem('accessToken', response.token);
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 1500);
+                } else {
+                    $('#notification').removeClass('is-hidden is-success').addClass('is-danger').text('로그인에 실패했습니다.');
+                }
+            },
+            error: function (xhr) {
+                let msg = '로그인에 실패했습니다.';
+                $('#notification').removeClass('is-hidden is-success').addClass('is-danger').text(msg);
+            }
+        });
+    });
+  </script>
 </body>
 </html>

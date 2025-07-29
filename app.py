@@ -1,22 +1,30 @@
 from bson import ObjectId
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, json
+from flask import Flask, json, render_template, request, jsonify, redirect, url_for, session
 from flask.json.provider import JSONProvider
-from werkzeug.security import generate_password_hash, check_password_hash
 from pymongo import MongoClient
-import jwt
+from werkzeug.security import generate_password_hash, check_password_hash
 import datetime
 from functools import wraps
 from dotenv import load_dotenv
 import os
 import json
+import jwt
 
 app = Flask(__name__)
 
+# .env 파일 로드
+load_dotenv()
+
+# 환경 변수에서 secret key 로드
+SECRET_KEY = os.getenv('SECRET_KEY')
+DB_URL = os.getenv('MONGODB_URL')
+
 # MongoDB 설정
-client = MongoClient('mongodb+srv://sparta:jungle@cluster0.b3sejq0.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0')
+client = MongoClient(DB_URL)
 db = client['balancegamedb']
+
 Member_collection = db['Member']
-Like_collection = db['likes']  # Like 컬렉션 추가
+Like_collection = db['likes']
 
 #######################################################################
 # MongoDB 조회 결과를 jsonify 메서드를 통해 JSON으로 만들 때
@@ -40,44 +48,135 @@ class CustomJSONProvider(JSONProvider):
 app.json = CustomJSONProvider(app)
 #######################################################################
 
-# .env 파일 로드
-load_dotenv()
+@app.route('/')
+def home():
+    return render_template('index.html')
 
-# 환경 변수에서 secret key 로드
-app.secret_key = os.getenv('SECRET_KEY')
+@app.route('/login')
+def login():
+    return render_template('login.html')
 
-# 질문 등록 페이지
-@app.route('/question/newquestion')
+@app.route('/register')
+def register():
+    return render_template('register.html')
+
+@app.route('/mypage')
+def mypage():
+    return render_template('mypage.html')
+
+@app.route('/question/<question_id>', methods=['GET'])
+def question(question_id):
+    question_data = db.questions.find_one({'_id': ObjectId(question_id)})
+    if not question_data:
+        return jsonify({'error': 'Question not found'}), 404
+    member_data = db.Member.find_one({'_id': question_data['member_id']})
+    like_count = Like_collection.count_documents({'question_id': ObjectId(question_id)})
+    participant_count = db.check.count_documents({'question_id': ObjectId(question_id)})  # 실제 응답 수 계산
+    comment_count = db.comments.count_documents({'question_id': ObjectId(question_id)})
+
+    return render_template('question.html', like_count=like_count, click_count=participant_count, question=question_data, member=member_data, commentCount=comment_count)
+
+@app.route('/question/new')
 def newQuestion():
-    token = None
-    if 'Authorization' in request.headers:
-        token = request.headers['Authorization'].split(" ")[1]
-    elif 'token' in session:
-        token = session.get('token')
+    return render_template('newQuestion.html')
 
-    if token:
+def token_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return jsonify({'message': 'Token is missing!'}), 401
+
+        token = auth_header.split()[1]
         try:
-            data = jwt.decode(token, app.secret_key, algorithms=["HS256"])
-            current_user = Member_collection.find_one({'id': data['user']})
-            if current_user:
-                return render_template('newQuestion.html', current_user=current_user)
+            data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            member_id = data['member_id']
         except jwt.ExpiredSignatureError:
-            flash('Token has expired! Please log in again.', 'warning')
+            return jsonify({'message': 'Token has expired'}), 401
         except jwt.InvalidTokenError:
-            flash('Invalid token! Please log in again.', 'warning')
+            return jsonify({'message': 'Invalid token'}), 401
 
-    flash('접근할 수 없는 페이지 입니다.', 'warning')
-    return redirect(url_for('home'))
+        return f(member_id, *args, **kwargs)
+    return wrapper
+
+@app.route("/api/auth/userinfo", methods=["GET"])
+@token_required
+def get_user_info(member_id):
+    user = Member_collection.find_one({'_id': ObjectId(member_id)})
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    return jsonify({
+        "nickname": user['nickname']
+    })
+
+@app.route('/api/login', methods=['POST'])
+def login_api():
+    data = request.get_json()
+    login_id = data.get('id')
+    password = data.get('password')
+
+    user = Member_collection.find_one({'id': login_id})
+
+    if not user or not check_password_hash(user['password'], password):
+        return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
+
+    token = jwt.encode({
+        'member_id': str(user['_id']),
+        'exp': datetime.datetime.now() + datetime.timedelta(hours=2)
+    }, SECRET_KEY, algorithm='HS256')
+
+    return jsonify({'success': True, 'token': token})
+
+@app.route('/api/register', methods=['POST'])
+def register_api():
+    data = request.get_json()
+    nickname = data.get('nickname')
+    member_id = data.get('id')
+    password = data.get('password')
+    birthday = data.get('birthday')
+    gender = data.get('gender')
+
+    existing_user = Member_collection.find_one({'id': member_id})
+    if existing_user:
+        return jsonify({'success': False, 'message': '이미 가입된 계정입니다.'}), 409
+
+    hashed_password = generate_password_hash(password, method='pbkdf2:sha256', salt_length=16)
+    Member_collection.insert_one({
+        'nickname': nickname,
+        'id': member_id,
+        'password': hashed_password,
+        'birthday': birthday,
+        'gender': gender,
+        'participant_questions': [],
+        'create_questions': []
+    })
+    return jsonify({'success': True, 'message': '회원가입 성공'})
+
+@app.route('/api/user/mypage', methods=['GET'])
+@token_required
+def get_mypage(current_user):
+    return jsonify({'success': True, 'user': {
+        'nickname': current_user['nickname'],
+        'id': current_user['id'],
+        'birthday': current_user['birthday'],
+        'gender': current_user['gender'],
+    }})
 
 @app.route('/api/question/list', methods=['GET'])
 def list_question():
     category_mode = request.args.get('categoryMode', 'life')
-    sort_mode = request.args.get('sortMode', 'likes')  # 기본 정렬 값: 좋아요 순
-    is_desc = -1  # 기본 정렬 방향: 내림차순
+    sort_mode = request.args.get('sortMode', 'likes')
+    is_desc = -1
+
+    sort_key = {
+        'likes': 'likes_count',
+        'participation': 'participant_count',
+        'created_at': 'created_at'
+    }.get(sort_mode, 'likes_count')  # 안전하게 매핑
 
     questions_cursor = db.questions.aggregate([
         {'$match': {'category': category_mode}},
-        {'$sort': {sort_mode: is_desc}},
         {
             '$lookup': {
                 'from': 'Member',
@@ -86,8 +185,31 @@ def list_question():
                 'as': 'member_info'
             }
         },
+        {'$unwind': '$member_info'},
         {
-            '$unwind': '$member_info'
+            '$lookup': {
+                'from': 'likes',
+                'localField': '_id',
+                'foreignField': 'question_id',
+                'as': 'like_info'
+            }
+        },
+        {
+            '$lookup': {
+                'from': 'check',
+                'localField': '_id',
+                'foreignField': 'question_id',
+                'as': 'participant_info'
+            }
+        },
+        {
+            '$addFields': {
+                'likes_count': {'$size': '$like_info'},
+                'participant_count': {'$size': '$participant_info'}
+            }
+        },
+        {
+            '$sort': {sort_key: is_desc}
         },
         {
             '$project': {
@@ -96,409 +218,198 @@ def list_question():
                 'question1': 1,
                 'question2': 1,
                 'created_at': 1,
-                'participant_count': 1,
                 'likes_count': 1,
+                'participant_count': 1,
                 'nickname': '$member_info.nickname'
             }
         }
     ])
-    questions_list = list(questions_cursor)  # Cursor 객체를 리스트로 변환
 
-    for question in questions_list:
-        question['_id'] = str(question['_id'])  # Convert ObjectId to string
-        question['like_count'] = Like_collection.count_documents({'question_id': ObjectId(question['_id'])})
-        question['participant_count'] = db.check.count_documents({'question_id': ObjectId(question['_id'])})  # 실제 응답 수 계산
+    questions_list = list(questions_cursor)
+    for q in questions_list:
+        q['_id'] = str(q['_id'])
 
- 
-    return jsonify({'questions': questions_list})
+    return jsonify({'result': 'success', 'questions': questions_list})
 
-# 사용자명(id)에 대한 고유 인덱스 생성
-Member_collection.create_index('id', unique=True)
+@app.route('/api/questions/<question_id>', methods=['GET'])
+def get_question_detail(question_id):
+    question = db.questions.find_one({'_id': ObjectId(question_id)})
+    if not question:
+        return jsonify({'success': False, 'message': '질문 없음'}), 404
 
-# JWT 토큰을 요구하는 데코레이터
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = None
-        if 'Authorization' in request.headers:
-            token = request.headers['Authorization'].split(" ")[1]
-        elif 'token' in session:
-            token = session['token']
-        if not token:
-            return jsonify({'message': 'Token is missing!'}), 401
-        try:
-            data = jwt.decode(token, app.secret_key, algorithms=["HS256"])
-            current_user = Member_collection.find_one({'id': data['user']})
-            if current_user is None:
-                return jsonify({'message': 'User not found!'}), 401
-        except jwt.ExpiredSignatureError:
-            return jsonify({'message': 'Token has expired!'}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({'message': 'Token is invalid!'}), 401
-        return f(current_user, *args, **kwargs)
-    return decorated
-
-# 홈 페이지
-@app.route('/')
-def home():
-    token = None
-    if 'Authorization' in request.headers:
-        token = request.headers['Authorization'].split(" ")[1]
-    elif 'token' in session:
-        token = session.get('token')
-
-    if token:
-        try:
-            data = jwt.decode(token, app.secret_key, algorithms=["HS256"])
-            current_user = Member_collection.find_one({'id': data['user']})
-            if current_user:
-                return render_template('index.html', current_user=current_user)
-        except jwt.ExpiredSignatureError:
-            flash('Token has expired! Please log in again.', 'warning')
-        except jwt.InvalidTokenError:
-            flash('Invalid token! Please log in again.', 'warning')
-
-    return render_template('index.html', current_user=None)
-
-
-# 로그인 페이지 및 처리
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        member_id = request.form['id']
-        password = request.form['password']
-        
-        user = Member_collection.find_one({'id': member_id})
-
-        if user and check_password_hash(user['password'], password):
-            token = jwt.encode({
-                'user': member_id,
-                'exp': datetime.datetime.now() + datetime.timedelta(minutes=30)
-            }, app.secret_key, algorithm="HS256")
-            session['token'] = token
-            return redirect(url_for('home'))
-        else:
-            return render_template('login.html', message="유효하지 않은 아이디거나 비밀번호가 틀렸습니다.", error=True)
-    return render_template('login.html')
-
-# 회원가입 페이지 및 처리
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if request.method == 'POST':
-        nickname = request.form['nickname']
-        member_id = request.form['id']
-        password = request.form['password']
-        birthday = request.form['birthday']
-        gender = request.form['gender']
-        hashed_password = generate_password_hash(password, method='pbkdf2:sha256', salt_length=16)
-
-        existing_user = Member_collection.find_one({'id': member_id})
-        if existing_user:
-            return render_template('register.html', message="이미 가입된 계정입니다.", error=True)
-
-        Member_collection.insert_one({
-            'nickname': nickname,
-            'id': member_id,
-            'password': hashed_password,
-            'birthday': birthday,
-            'gender': gender,
-            'participant_questions': [],
-            'create_questions': []
-        })
-        return render_template('login.html', message="회원가입이 성공적으로 완료되었습니다.", error=False)
-
-    return render_template('register.html')
-
-# 보호된 페이지
-@app.route('/protected')
-@token_required
-def protected(current_user):
-    return render_template('protected.html', current_user=current_user)
-
-# 마이페이지
-@app.route('/mypage', methods = ['GET'])
-def mypage():
-    token = None
-    if 'Authorization' in request.headers:
-        token = request.headers['Authorization'].split(" ")[1]
-    elif 'token' in session:
-        token = session.get('token')
-
-    if token:
-        try:
-            data = jwt.decode(token, app.secret_key, algorithms=["HS256"])
-            current_user = Member_collection.find_one({'id': data['user']})
-            if current_user:
-                return render_template('mypage.html', current_user=current_user)
-        except jwt.ExpiredSignatureError:
-            flash('Token has expired! Please log in again.', 'warning')
-        except jwt.InvalidTokenError:
-            flash('Invalid token! Please log in again.', 'warning')
-
-    return render_template('mypage.html', current_user=None)
-
-# 로그아웃
-@app.route('/logout', methods=['POST'])
-def logout():
-    session.pop('token', None)
-    flash('로그아웃이 성공적으로 완료되었습니다.', 'success')
-    return redirect(url_for('home'))
-
-# 질문 페이지
-@app.route('/question/<question_id>', methods=['GET'])
-def question(question_id):
-    token = None
-    if 'Authorization' in request.headers:
-        token = request.headers['Authorization'].split(" ")[1]
-    elif 'token' in session:
-        token = session.get('token')
-
-    question_data = db.questions.find_one({'_id': ObjectId(question_id)})
-    if not question_data:
-        return jsonify({'error': 'Question not found'}), 404
-    member_data = db.Member.find_one({'_id': question_data['member_id']})
-    if not member_data:
-        return jsonify({'error': 'Member not found'}), 404
+    member = db.Member.find_one({'_id': question['member_id']})
     like_count = Like_collection.count_documents({'question_id': ObjectId(question_id)})
-    participant_count = db.check.count_documents({'question_id': ObjectId(question_id)})  # 실제 응답 수 계산
-    comment_count = db.comment.count_documents({'question_id': ObjectId(question_id)})
+    participant_count = db.check.count_documents({'question_id': ObjectId(question_id)})
+    comment_count = db.comments.count_documents({'question_id': ObjectId(question_id)})
 
-    if token:
-        try:
-            data = jwt.decode(token, app.secret_key, algorithms=["HS256"])
-            current_user = Member_collection.find_one({'id': data['user']})
-            if current_user:
-                check_data = db.check.find_one({'member_id': current_user['_id'], 'question_id': ObjectId(question_id)})
+    question['_id'] = str(question['_id'])
+    question['member_nickname'] = member['nickname']
+    question['like_count'] = like_count
+    question['participant_count'] = participant_count
+    question['comment_count'] = comment_count
 
-                return render_template('question.html', like_count=like_count, click_count=participant_count, question=question_data, member=member_data, check=check_data, commentCount=comment_count, current_user=current_user)
+    return jsonify({'success': True, 'question': question})
 
-        except jwt.ExpiredSignatureError:
-            flash('Token has expired! Please log in again.', 'warning')
-        except jwt.InvalidTokenError:
-            flash('Invalid token! Please log in again.', 'warning')
+@app.route('/api/questions', methods=['POST'])
+@token_required
+def createQuestion(member_id):
+    if not member_id:
+        return jsonify({'result': 'fail', 'msg': '로그인 후 사용 가능합니다'}), 401
 
-    return render_template('question.html', like_count=like_count, click_count=participant_count, question=question_data, member=member_data, check=None, commentCount=comment_count, current_user=None)
+    category = request.form['category']
+    question1 = request.form['question1']
+    question2 = request.form['question2']
+    createdAt = datetime.datetime.now()
+
+    data = {
+        'member_id': ObjectId(member_id),
+        'created_at': createdAt,
+        'category': category,
+        'question1': question1,
+        'question2': question2,
+    }
+    db.questions.insert_one(data)
+    return jsonify({'result': 'success', 'msg': '질문 생성 성공'}), 201
+
+@app.route('/api/questions/<question_id>/comments', methods=['POST'])
+@token_required
+def create_comment(member_id, question_id):
+    if not member_id:
+        return jsonify({'result': 'fail', 'msg': '로그인 후 사용 가능합니다'}), 401
+
+    data = request.get_json()
+    content = data.get('content')
+    if not content or not question_id:
+        return jsonify({'message': 'post_id and content are required'}), 400
+
+    user = Member_collection.find_one({'_id': ObjectId(member_id)})
+
+    comment = {
+        'question_id': ObjectId(question_id),
+        'user_id': ObjectId(member_id),
+        'nickname': user['nickname'],
+        'content': content,
+        'created_at': datetime.datetime.now()
+    }
+
+    db.comments.insert_one(comment)
+    return jsonify({'result': 'success', 'message': 'Comment added'}), 201
+
+@app.route('/api/questions/<question_id>/comments/<comment_id>', methods=['DELETE'])
+@token_required
+def deleteComment(member_id, question_id, comment_id):
+    if not member_id:
+        return jsonify({'result': 'fail', 'msg': '로그인 후 사용 가능합니다'}), 401
+
+    db.comments.delete_one({'_id': ObjectId(comment_id), 'user_id': ObjectId(member_id)})
+    return jsonify({'result': 'success', 'msg': '댓글 삭제 완료!'})
+
+# 댓글 수정
+@app.route('/api/questions/<question_id>/comments/<comment_id>', methods=['PUT'])
+@token_required
+def updateComment(member_id, question_id, comment_id):
+    if not member_id:
+        return jsonify({'result': 'fail', 'msg': '로그인 후 사용 가능합니다'}), 401
+    
+    data = request.get_json()
+    content = data['content']
+    db.comments.update_one({'_id': ObjectId(comment_id), 'user_id': ObjectId(member_id)}, {'$set': {'content': content}})
+    return jsonify({'result': 'success', 'msg': '댓글 수정 완료!'})
 
 
+# 댓글 리스트 조회
+@app.route('/api/questions/<question_id>/comments', methods=['GET'])
+def readCommentList(question_id):
+    commentList = list(db.comments.find({'question_id': ObjectId(question_id)}))
+    return jsonify({'result': 'success', 'commentList': commentList})
 
 # 좋아요 수 증가 및 취소 라우트
-@app.route('/increment_like', methods=['POST'])
-def increment_like():
-    token = None
-    if 'Authorization' in request.headers:
-        token = request.headers['Authorization'].split(" ")[1]
-    elif 'token' in session:
-        token = session.get('token')
+@app.route('/api/likes', methods=['POST'])
+@token_required
+def increment_like(member_id):
+
+    if not member_id:
+        return jsonify({'result': 'fail', 'msg': '로그인 후 사용 가능합니다'})
 
     question_id = request.form['question_id']
-    question_obj_id = ObjectId(question_id)
-    if token:
-        try:
-            data = jwt.decode(token, app.secret_key, algorithms=["HS256"])
-            current_user = Member_collection.find_one({'id': data['user']})
 
-            # 좋아요 기록을 like 컬렉션에 삽입
-            like_record = {
-                'member_id': current_user['_id'],
-                'question_id': question_obj_id
-            }
-            # 중복 좋아요 방지
-            existing_like = Like_collection.find_one({'member_id': current_user['_id'], 'question_id': question_obj_id})
-            if existing_like:
-                Like_collection.delete_one({'_id': existing_like['_id']})
-                action = "unliked"
-            else:
-                Like_collection.insert_one(like_record)
-                action = "liked"
+    # 좋아요 기록을 like 컬렉션에 삽입
+    like_record = {
+        'member_id': ObjectId(member_id),
+        'question_id': ObjectId(question_id)
+    }
+    # 중복 좋아요 방지
+    existing_like = Like_collection.find_one({'member_id': ObjectId(member_id), 'question_id': ObjectId(question_id)})
+    if existing_like:
+        Like_collection.delete_one({'_id': existing_like['_id']})
+        action = "unliked"
+    else:
+        Like_collection.insert_one(like_record)
+        action = "liked"
 
-            # 해당 질문의 좋아요 수 계산
-            like_count = Like_collection.count_documents({'question_id': question_obj_id})
-
-            if current_user:
-                return jsonify({'result': 'success', 'like_count': like_count, 'action': action})
-        except jwt.ExpiredSignatureError:
-            flash('Token has expired! Please log in again.', 'warning')
-        except jwt.InvalidTokenError:
-            flash('Invalid token! Please log in again.', 'warning')
-
-    like_count = Like_collection.count_documents({'question_id': question_obj_id})
-    return jsonify({'result': 'fail', 'like_count': like_count, 'action': None})
-
-
-
-
+    # 해당 질문의 좋아요 수 계산
+    like_count = Like_collection.count_documents({'question_id': ObjectId(question_id)})
 
     return jsonify({'result': 'success', 'like_count': like_count, 'action': action})
 
-
-# 댓글 등록
-@app.route('/api/question/comment', methods=['POST'])
-def createComment():
-    token = None
-    if 'Authorization' in request.headers:
-        token = request.headers['Authorization'].split(" ")[1]
-    elif 'token' in session:
-        token = session.get('token')
-
-    if token:
-        try:
-            data = jwt.decode(token, app.secret_key, algorithms=["HS256"])
-            current_user = Member_collection.find_one({'id': data['user']})
-
-            questionId = ObjectId(request.form['questionId'])
-            memberId = current_user['_id']
-            member_data = db.Member.find_one({'_id': memberId})
-            writer = member_data['nickname']
-            content = request.form['content']
-            content_data = {
-                'question_id': questionId,
-                'member_id': memberId,
-                'nickname': writer,
-                'created_at': datetime.datetime.now(),
-                'content': content
-            }
-            db.comment.insert_one(content_data)
-            if current_user:
-                return jsonify({'result': 'success', 'msg': '댓글 등록 완료!'})
-        except jwt.ExpiredSignatureError:
-            flash('Token has expired! Please log in again.', 'warning')
-        except jwt.InvalidTokenError:
-            flash('Invalid token! Please log in again.', 'warning')
-
-    return jsonify({'result': 'fail', 'msg': '로그인 후 사용 가능합니다'})
-
-
-    questionId = ObjectId(request.form['questionId'])
-    memberId = current_user['_id']
-    member_data = db.Member.find_one({'_id': memberId})
-    writer = member_data['nickname']
-    content = request.form['content']
-    data = {
-        'question_id': questionId,
-        'member_id': memberId,
-        'nickname': writer,
-        'created_at': datetime.datetime.now(),
-        'content': content
-    }
-    db.comment.insert_one(data)
-    return jsonify({'result': 'success', 'msg': '로그인 후 사용 가능합니다'})
-
-# 댓글 리스트 조회
-@app.route('/api/question/<question_id>/comment', methods=['GET'])
-def readCommentList(question_id):
-    commentList = list(db.comment.find({'question_id': ObjectId(question_id)}))
-    return jsonify({'result': 'success', 'commentList': commentList})
-
-# 댓글 수정
-@app.route('/api/comment/<comment_id>', methods=['PUT'])
-def updateComment(comment_id):
-    token = None
-    if 'Authorization' in request.headers:
-        token = request.headers['Authorization'].split(" ")[1]
-    elif 'token' in session:
-        token = session.get('token')
-
-    if token:
-        try:
-            data = jwt.decode(token, app.secret_key, algorithms=["HS256"])
-            current_user = Member_collection.find_one({'id': data['user']})
-            if current_user:
-                comment_data = db.comment.find_one({'_id': ObjectId(comment_id)})
-                writer = comment_data['member_id']
-                if current_user['_id'] == writer:
-                    content = request.form['content']
-                    db.comment.update_one({'_id': ObjectId(comment_id)}, {'$set': {'content': content}})
-                    return jsonify({'result': 'success', 'msg': '댓글 수정 완료!'})
-        except jwt.ExpiredSignatureError:
-            flash('Token has expired! Please log in again.', 'warning')
-        except jwt.InvalidTokenError:
-            flash('Invalid token! Please log in again.', 'warning')
-
-    return jsonify({'result': 'fail', 'msg': '로그인 후 사용 가능합니다'})
-
-
-
-# 댓글 삭제
-@app.route('/api/comment/<comment_id>', methods=['DELETE'])
-@token_required
-def deleteComment(current_user, comment_id):
-    db.comment.delete_one({'_id': ObjectId(comment_id)})
-    return jsonify({'result': 'success', 'msg': '댓글 삭제 완료!'})
-
-# 질문 등록
-@app.route('/api/question', methods=['POST'])
-@token_required
-def createQuestion(current_user):
-    try:
-        memberId = current_user['_id']
-        category = request.form['category']
-        question1 = request.form['question1']
-        question2 = request.form['question2']
-        createdAt = datetime.datetime.now()
-
-        data = {
-            'member_id': memberId,
-            'created_at': createdAt,
-            'category': category,
-            'question1': question1,
-            'question2': question2,
-        }
-        db.questions.insert_one(data)
-
-        return jsonify({'result': 'success', 'msg': '질문 등록 완료!'})
-    except Exception as e:
-        print(f"Error: {e}")
-        return jsonify({'result': 'fail', 'msg': '로그인 후 사용 가능합니다'}), 500
-
 # 질문 선택
-@app.route('/api/question/<question_id>/click', methods=['POST'])
-def clickQuestion(question_id):
-    token = None
-    if 'Authorization' in request.headers:
-        token = request.headers['Authorization'].split(" ")[1]
-    elif 'token' in session:
-        token = session.get('token')
+@app.route('/api/questions/<question_id>/check', methods=['POST'])
+@token_required
+def clickQuestion(member_id, question_id):
 
-    if token:
-        try:
-            data = jwt.decode(token, app.secret_key, algorithms=["HS256"])
-            current_user = Member_collection.find_one({'id': data['user']})
+    if not member_id:
+        return jsonify({'result': 'fail', 'msg': '로그인 후 사용 가능합니다'})
 
-            memberId = current_user['_id']
-            questionId = ObjectId(question_id)
-            check = request.form['questionNum']
+    questionId = ObjectId(question_id)
+    check = request.form['questionNum']
 
-            findData = {
-                'member_id': memberId,
-                'question_id': questionId
-            }
-            checkData = db.check.find_one(findData)
+    findData = {
+        'member_id': member_id,
+        'question_id': questionId
+    }
+    checkData = db.check.find_one(findData)
 
-            data = {
-                'member_id': memberId,
-                'question_id': questionId,
-                'check': check
-            }
-            if current_user:
-                if not checkData:
-                    db.check.insert_one(data)
-                elif check != checkData['check']:
-                    db.check.update_one(findData, {'$set': {'check': check}})
-                participant_count = db.check.count_documents({'question_id': questionId})
-                same_check_count = db.check.count_documents({'question_id': questionId, 'check': check})
-                check_percent = round((same_check_count / participant_count) * 100, 2)
-                statistics_data = {
-                    'same_check_count': same_check_count,
-                    'check_percent': check_percent,
-                }
-                return jsonify({'result': 'success', 'msg': '질문 선택 완료!', 'participant_count': participant_count, 'statistics_data': statistics_data})
-        except jwt.ExpiredSignatureError:
-            flash('Token has expired! Please log in again.', 'warning')
-        except jwt.InvalidTokenError:
-            flash('Invalid token! Please log in again.', 'warning')
+    data = {
+        'member_id': member_id,
+        'question_id': questionId,
+        'check': check
+    }
+    if not checkData:
+        db.check.insert_one(data)
+    elif check != checkData['check']:
+        db.check.update_one(findData, {'$set': {'check': check}})
+    participant_count = db.check.count_documents({'question_id': questionId})
+    same_check_count = db.check.count_documents({'question_id': questionId, 'check': check})
+    check_percent = round((same_check_count / participant_count) * 100, 2)
+    statistics_data = {
+        'same_check_count': same_check_count,
+        'check_percent': check_percent,
+    }
+    return jsonify({'result': 'success', 'msg': '질문 선택 완료!', 'participant_count': participant_count, 'statistics_data': statistics_data})
 
-    return jsonify({'result': 'fail', 'msg': '로그인 후 사용 가능합니다'})
 
+@app.route('/api/questions/<question_id>/check', methods=['GET'])
+@token_required
+def showQuestionCheck(member_id, question_id):
+
+    if not member_id:
+        return jsonify({'result': 'fail', 'msg': '로그인 후 사용 가능합니다'})
+
+    questionId = ObjectId(question_id)
+    checkData = db.check.find_one({'member_id': member_id, 'question_id': questionId})
+    participant_count = db.check.count_documents({'question_id': questionId})
+
+    if not checkData:
+        return jsonify({'result': 'success', 'msg': '질문 선택 조회 완료!', 'checked': None, 'participant_count': participant_count, 'statistics_data': None})
+
+    same_check_count = db.check.count_documents({'question_id': questionId, 'check': checkData['check']})
+    check_percent = round((same_check_count / participant_count) * 100, 2)
+    statistics_data = {
+        'same_check_count': same_check_count,
+        'check_percent': check_percent,
+    }
+
+    return jsonify({'result': 'success', 'msg': '질문 선택 조회 완료!', 'checked': checkData['check'], 'participant_count': participant_count, 'statistics_data': statistics_data})
 
 if __name__ == '__main__':
-    app.run('0.0.0.0', port=5000, debug=True)
+    app.run('0.0.0.0', port=5001, debug=True)

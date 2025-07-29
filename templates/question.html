@@ -30,17 +30,8 @@
             </a>
         </div>
         <div class="nav-main">
-            <div class="field is-grouped">
-                {% if current_user %}
-                    <div class="member-nickname"><span class="tag is-link is-light">{{ current_user['nickname'] }}</span>님 안녕하세요</div>
-
-                    <form action="{{ url_for('logout') }}" method="post" style="margin-right: 10px;">
-                        <button class="button">로그아웃</button>
-                    </form>
-                    <a class="button" href="{{ url_for('mypage') }}">마이 페이지</a>
-                {% else %}
-                    <a class="button" href="{{ url_for('login') }}">로그인</a>
-                {% endif %}
+            <div class="field is-grouped" id="auth-buttons">
+                <!-- 로그인/로그아웃/마이페이지 버튼이 여기에 삽입될 예정 -->
             </div>
         </div>
     </nav>
@@ -69,22 +60,14 @@
 </section>
 
 <section class="question-box lr-align">
-    {% if check['check'] == '1' %}
-    <div class="button-box question-select">
-    {% else %}
     <div class="button-box">
-    {% endif %}
         <button onclick="question1()" class="button question" data-question-id="{{ question['_id'] }}" data-check="1">{{ question['question1'] }}</button>
     </div>
     <div class="versus">
         <span class="versus-v">V</span>
         <span class="versus-s">S</span>
     </div>
-    {% if check['check'] == '2' %}
-    <div class="button-box question-select">
-    {% else %}
     <div class="button-box">
-    {% endif %}
         <button onclick="question2()" class="button question" data-question-id="{{ question['_id'] }}" data-check="2">{{ question['question2'] }}</button>
     </div>
 </section>
@@ -109,15 +92,27 @@
 <script>
 
     $(document).ready(function(){
+        showLoginStatus();
+        showMyCheck();
+
         showComments();
     });
 
     $('#like-button').click(function(){
+        let token = localStorage.getItem("accessToken");
+        if (!token) {
+            console.error("No token found");
+            return;
+        }
+
         let questionId = $(this).data('question-id');
         $.ajax({
-            url: "{{ url_for('increment_like') }}",
+            url: "/api/likes",
             type: "POST",
             data: { question_id: questionId },
+            headers: {
+                Authorization: "Bearer " + token,
+            },
             success: function (response) {
                 if (response['result'] == 'success') {
                     if (response.like_count !== undefined) {
@@ -139,13 +134,22 @@
     });
 
     function question1() {
+        let token = localStorage.getItem("accessToken");
+        if (!token) {
+            console.error("No token found");
+            return;
+        }
+
         let url = window.location.pathname;
         let question_id = url.split('/').pop();
         $.ajax({
-            url: `/api/question/${question_id}/click`,
+            url: `/api/questions/${question_id}/check`,
             type: "POST",
             data: {
                 "questionNum": 1
+            },
+            headers: {
+                Authorization: "Bearer " + token,
             },
             success: function (response) {
                 if (response['result'] == 'success') {
@@ -176,13 +180,22 @@
     }
 
     function question2() {
+        let token = localStorage.getItem("accessToken");
+        if (!token) {
+            console.error("No token found");
+            return;
+        }
+
         let url = window.location.pathname;
         let question_id = url.split('/').pop();
         $.ajax({
-            url: `/api/question/${question_id}/click`,
+            url: `/api/questions/${question_id}/check`,
             type: "POST",
             data: {
                 "questionNum": 2
+            },
+            headers: {
+                Authorization: "Bearer " + token,
             },
             success: function (response) {
                 if (response['result'] == 'success') {
@@ -213,6 +226,8 @@
     }
 
     function dataReload(response) {
+        if (!response['statistics_data']) return;
+
         let temp_html;
 
         // 통계 갱신
@@ -255,19 +270,20 @@
         let question_id = url.split('/').pop();
         $.ajax({
             type: 'GET',
-            url: `/api/question/${question_id}/comment`,
+            url: `/api/questions/${question_id}/comments`,
             success: function (response) {
                 if (response['result'] == 'success') {
                     $('.comment-list-area').empty()
                     let commentList = response['commentList'];
-                    let currentUserId = "{{ current_user['_id'] }}";  // 현재 로그인한 사용자의 ID
+                    let currentUserId = parseJwt(localStorage.getItem("accessToken")).member_id;
                     for (let i = 0; i < commentList.length; i++) {
                         let comment = commentList[i];
                         let commentId = comment['_id'];
                         let writer = comment['nickname'];
+                        let writerId = comment['user_id']
                         let createdAt = comment['created_at'];
                         let content = comment['content'];
-                        let isOwner = comment['member_id'] === currentUserId;  // 작성자와 로그인한 사용자 비교
+                        let isOwner = writerId === currentUserId;  // 작성자와 로그인한 사용자 비교
                         let temp_html = `
                         <div class="comment-area">
                             <input class="comment-id" type="hidden" value="${commentId}">
@@ -286,7 +302,7 @@
                                 ${isOwner ? `
                                 <div class="comment-btn">
                                     <button onclick="updateForm(this)" class="button is-small comment-update">수정</button>
-                                    <button onclick="deleteComment(this)" class="button is-small is-danger  is-light comment-delete">삭제</button>
+                                    <button onclick="deleteComment('{{ question['_id'] }}', '${commentId}')" class="button is-small is-danger  is-light comment-delete">삭제</button>
                                 </div>` : ''}
                             </div>
 
@@ -301,7 +317,7 @@
                                     <textarea class="textarea is-success" rows="3" name="comment" placeholder="댓글을 작성해주세요">${content}</textarea>
                                 </div>
                                 <div class="comment-btn">
-                                    <button onclick="updateComment(this)" class="button is-small is-link is-light comment-update">수정</button>
+                                    <button onclick="updateComment(this, '{{ question['_id'] }}', '${commentId}')" class="button is-small is-link is-light comment-update">수정</button>
                                     <button onclick="defualtForm(this)" class="button is-small comment-delete">취소</button>
                                 </div>
                             </div>` : ''}
@@ -314,53 +330,105 @@
         });
     }
 
+    function parseJwt(token) {
+        try {
+            const base64Url = token.split('.')[1];
+            const base64 = base64Url
+            .replace(/-/g, '+')
+            .replace(/_/g, '/');
+
+            const jsonPayload = decodeURIComponent(
+            atob(base64)
+                .split('')
+                .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                .join('')
+            );
+
+            return JSON.parse(jsonPayload);
+        } catch (e) {
+            console.error('Invalid token:', e);
+            return null;
+        }
+    }
+
     function addComment() {
+        let token = localStorage.getItem("accessToken");
+        if (!token) {
+            alert("로그인 후 이용 가능합니다.");
+            console.error("No token found");
+            return;
+        }
+
         let content = $('.comment-input textarea').val();
         let url = window.location.pathname;
         let question_id = url.split('/').pop();
         $.ajax({
             type: 'POST',
-            url: `/api/question/comment`,
-            data: {
-                'questionId': question_id,
+            url: `/api/questions/${question_id}/comments`,
+            contentType: 'application/json',
+            data: JSON.stringify({
                 'content': content
+            }),
+            headers: {
+                Authorization: "Bearer " + token,
             },
             success: function (response) {
                 if (response['result'] == 'success') {
                     showComments();
-                } else {
-                    alert("로그인 후 이용 가능합니다.");
                 }
+            },
+            error: function (error) {
+                alert("댓글 등록 과정에서 문제가 발생했습니다.");
+                console.error(error.msg);
             }
         });
     }
 
-    function updateComment(e) {
-        let commentId = $(e).closest('.comment-area').find('.comment-id').val();
+    function updateComment(e, question_id, comment_id) {
+        let token = localStorage.getItem("accessToken");
+        if (!token) {
+            alert("로그인 후 이용 가능합니다.");
+            console.error("No token found");
+            return;
+        }
+
         let content = $(e).closest('.comment-area').find('textarea').val();
         $.ajax({
             type: 'PUT',
-            url: `/api/comment/${commentId}`,
-            data: {
+            url: `/api/questions/${question_id}/comments/${comment_id}`,
+            contentType: 'application/json',
+            data: JSON.stringify({
                 'content': content
+            }),
+            headers: {
+                Authorization: "Bearer " + token,
             },
             success: function (response) {
                 if (response['result'] == 'success') {
-                    console.log(response['msg']);
+                    alert(response['msg']);
                     showComments();
                 }
             }
         });
     }
 
-    function deleteComment(e) {
-        let commentId = $(e).closest('.comment-area').find('.comment-id').val();
+    function deleteComment(question_id, comment_id) {
+        let token = localStorage.getItem("accessToken");
+        if (!token) {
+            alert("로그인 후 이용 가능합니다.");
+            console.error("No token found");
+            return;
+        }
+
         $.ajax({
             type: 'DELETE',
-            url: `/api/comment/${commentId}`,
+            url: `/api/questions/${question_id}/comments/${comment_id}`,
+            headers: {
+                Authorization: "Bearer " + token,
+            },
             success: function (response) {
                 if (response['result'] == 'success') {
-                    console.log(response['msg']);
+                    alert(response['msg']);
                     showComments();
                 }
             }
@@ -379,5 +447,82 @@
         let todo = $(e).closest('.comment-area').find('.comment-text p').text();
         $(e).closest('.comment-area').find('.comment-update-form textarea').val(todo);
     }
+
+    // 로그인 상태일 경우: 토큰 디코딩해서 사용자 정보 요청
+    function showLoginStatus() {
+        const token = localStorage.getItem("accessToken");
+        const authButtons = document.getElementById("auth-buttons");
+
+        if (!token) {
+            authButtons.innerHTML = `
+                <a class="button" href="/login">로그인</a>
+            `;
+            return;
+        }
+
+        $.ajax({
+            url: "/api/auth/userinfo",
+            type: "GET",
+            headers: {
+                "Authorization": `Bearer ${token}`
+            },
+            success: function (res) {
+                const nickname = res.nickname;
+
+                authButtons.innerHTML = `
+                    <div class="member-nickname"><span class="tag is-link is-light">${nickname}</span>님 안녕하세요</div>
+                    <form id="logout-form" style="margin-right: 10px;">
+                        <button class="button" type="button">로그아웃</button>
+                    </form>
+                    <a class="button" href="/mypage">마이 페이지</a>
+                `;
+
+                document.getElementById("logout-form").addEventListener("click", function (e) {
+                    e.preventDefault();
+                    localStorage.removeItem("accessToken");
+                    window.location.reload();
+                });
+            },
+            error: function () {
+                localStorage.removeItem("accessToken");
+                location.reload();
+            }
+        });
+    }
+
+    function showMyCheck() {
+        let token = localStorage.getItem("accessToken");
+        if (!token) {
+            console.error("No token found");
+            return;
+        }
+
+        let url = window.location.pathname;
+        let question_id = url.split('/').pop();
+        $.ajax({
+            url: `/api/questions/${question_id}/check`,
+            headers: {
+                Authorization: "Bearer " + token,
+            },
+            success: function (response) {
+                if (response['result'] == 'success') {
+                    $('[data-check=1]').parent().removeClass("question-select")
+                    $('[data-check=2]').parent().removeClass("question-select")
+                    
+                    if (response['checked'] == 1) {
+                        $('[data-check=1]').parent().addClass("question-select")
+                    } else if (response['checked'] == 2) {
+                        $('[data-check=2]').parent().addClass("question-select")
+                    }
+
+                    dataReload(response)
+                }
+            },
+            error: function (error) {
+                console.log("Error:", error);
+            }
+        });
+    }
+
 </script>
 </html>

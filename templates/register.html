@@ -32,17 +32,6 @@
                 </a>
             </div>
             <div class="nav-main">
-                <div class="field is-grouped">
-                    {% if current_user %}
-                    <div class="member-nickname"><span class="tag is-link is-light">{{ current_user['nickname']
-                            }}</span>님 안녕하세요</div>
-                    <form action="{{ url_for('logout') }}" method="post" style="margin-right: 10px;">
-                        <button class="button">로그아웃</button>
-                    </form>
-                    {% else %}
-                    <a class="button" href="{{ url_for('login') }}">로그인</a>
-                    {% endif %}
-                </div>
             </div>
         </nav>
 
@@ -53,77 +42,121 @@
             </div>
         </section>
     </header>
-<section class="section">
-    <div class="container">
-        <h1 class="title">회원가입</h1>
-        {% if message %}
-        <div class="notification {{ 'is-danger' if error else 'is-success' }}">
-            {{ message }}
-        </div>
-        {% endif %}
-        <form action="{{ url_for('register') }}" method="post">
-            <!-- 동작 과정
-클라이언트 요청: 클라이언트가 특정 URL(예: /register)로 요청을 보냅니다.
-서버 처리: Flask 서버는 해당 요청을 처리하고, register 엔드포인트에 해당하는 HTML 템플릿을 렌더링합니다. 이때 Jinja2 템플릿 엔진을 사용하여 동적인 내용을 삽입합니다.
-HTML 반환: 서버에서 렌더링된 HTML이 클라이언트로 반환됩니다.
-폼 제출: 사용자가 폼을 작성하고 제출하면, 폼 데이터가 지정된 액션 URL로 전송됩니다 (method="post"). -->
-            <div class="field">
+    <section class="section">
+        <div class="container">
+            <h1 class="title">회원가입</h1>
+
+            <div id="notification" class="notification is-hidden"></div>
+
+            <form id="register-form">
+                <div class="field">
                 <p class="control has-icons-left has-icons-right">
-                    <input class="input" type="text" name="nickname" placeholder="Nickname" required>
+                    <input class="input" type="text" name="nickname" placeholder="Nickname" required />
                     <span class="icon is-small is-left">
-                        <i class="fas fa-user"></i>
+                    <i class="fas fa-user"></i>
                     </span>
                 </p>
-            </div>
-            <div class="field">
+                </div>
+
+                <div class="field">
                 <p class="control has-icons-left has-icons-right">
-                    <input class="input" type="text" name="id" placeholder="ID" required>
+                    <input class="input" type="text" name="id" placeholder="ID" required />
                     <span class="icon is-small is-left">
-                        <i class="fas fa-user"></i>
+                    <i class="fas fa-user"></i>
                     </span>
                 </p>
-            </div>
-            <div class="field">
+                </div>
+
+                <div class="field">
                 <p class="control has-icons-left">
-                    <input class="input" type="password" name="password" placeholder="Password" required>
+                    <input class="input" type="password" name="password" placeholder="Password" required />
                     <span class="icon is-small is-left">
-                        <i class="fas fa-lock"></i>
+                    <i class="fas fa-lock"></i>
                     </span>
                 </p>
-            </div>
-            <div class="field">
+                </div>
+
+                <div class="field">
                 <p class="control has-icons-left">
-                    <input class="input" type="date" name="birthday" placeholder="Birthday" required>
+                    <input class="input" type="date" name="birthday" placeholder="Birthday" required />
                     <span class="icon is-small is-left">
-                        <i class="fas fa-calendar"></i>
+                    <i class="fas fa-calendar"></i>
                     </span>
                 </p>
-            </div>
-            <div class="field">
+                </div>
+
+                <div class="field">
                 <p class="control has-icons-left">
                     <div class="select">
-                        <select name="gender" required>
-                            <option value="" disabled selected>Gender</option>
-                            <option value="Male">Male</option>
-                            <option value="Female">Female</option>
-                            <option value="Other">Other</option>
-                        </select>
+                    <select name="gender" required>
+                        <option value="" disabled selected>Gender</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                    </select>
                     </div>
                     <span class="icon is-small is-left">
-                        <i class="fas fa-venus-mars"></i>
+                    <i class="fas fa-venus-mars"></i>
                     </span>
                 </p>
-            </div>
-            <div class="field">
+                </div>
+
+                <div class="field">
                 <p class="control">
-                    <button class="button is-success">
-                        등록
+                    <button class="button is-success" type="submit">
+                    등록
                     </button>
                 </p>
-            </div>
-        </form>
-        <p>이미 계정이 있으신가요? <a href="{{ url_for('login') }}">로그인</a></p>
-    </div>
-</section>
+                </div>
+            </form>
+            <p>이미 계정이 있으신가요? <a href="{{ url_for('login') }}">로그인</a></p>
+        </div>
+    </section>
+    <script>
+        $(document).ready(function () {
+        $('#register-form').on('submit', function (e) {
+            e.preventDefault();
+
+            const formData = {
+                nickname: $('input[name="nickname"]').val(),
+                id: $('input[name="id"]').val(),
+                password: $('input[name="password"]').val(),
+                birthday: $('input[name="birthday"]').val(),
+                gender: $('select[name="gender"]').val(),
+            };
+
+            $.ajax({
+            url: '{{ url_for("register_api") }}',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function (response) {
+                if (response.success) {
+                $('#notification')
+                    .removeClass('is-hidden is-danger')
+                    .addClass('is-success')
+                    .text('회원가입이 완료되었습니다! 로그인 페이지로 이동합니다.');
+
+                setTimeout(() => {
+                    window.location.href = '/login';
+                }, 1500);
+                } else {
+                $('#notification')
+                    .removeClass('is-hidden is-success')
+                    .addClass('is-danger')
+                    .text(response.message || '회원가입에 실패했습니다.');
+                }
+            },
+            error: function (xhr) {
+                let msg = '회원가입에 실패했습니다.';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                msg = xhr.responseJSON.message;
+                }
+                $('#notification').removeClass('is-hidden is-success').addClass('is-danger').text(msg);
+            },
+            });
+        });
+        });
+    </script>
 </body>
 </html>

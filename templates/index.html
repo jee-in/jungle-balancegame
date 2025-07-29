@@ -22,7 +22,6 @@
 </head>
 
 <body>
-<input class="member-id" type="hidden" value="{{ current_user['_id'] }}">
     <!-- 헤더 -->
     <header>
         <nav id="top-nav" role="navigation" class="is-white">
@@ -32,16 +31,8 @@
                 </a>
             </div>
             <div class="nav-main">
-                <div class="field is-grouped">
-                    {% if current_user %}
-                        <div class="member-nickname"><span class="tag is-link is-light">{{ current_user['nickname'] }}</span>님 안녕하세요</div>
-                        <form action="{{ url_for('logout') }}" method="post" style="margin-right: 10px;">
-                            <button class="button">로그아웃</button>
-                        </form>
-                        <a class="button" href="{{ url_for('mypage') }}">마이 페이지</a>
-                    {% else %}
-                        <a class="button" href="{{ url_for('login') }}">로그인</a>
-                    {% endif %}
+                <div class="field is-grouped" id="auth-buttons">
+                    <!-- 로그인/로그아웃/마이페이지 버튼이 여기에 삽입될 예정 -->
                 </div>
             </div>
         </nav>
@@ -131,16 +122,6 @@
             </div>
         </div>
         <div class="regist-question">
-            <script>
-                function newQuestionButton() {
-                    memberId = $('.member-id').val();
-                    if (memberId) {
-                        window.location.href = '/question/newquestion';
-                    } else {
-                        alert('로그인 후 사용 가능합니다');
-                    }
-                }
-            </script>
             <button onclick="newQuestionButton()" class="new-question-btn button is-link">
                 새로운 질문 등록
             </button>
@@ -154,6 +135,8 @@
 <script>
     //페이지가 로드되면 카테고리, 정렬 모드에 따라 밸런스 게임 질문 목록을 가져와서 화면에 표시
     $(document).ready(function () {
+        showLoginStatus();
+
         displayCategoryMode();                      // 카테고리 모드 표시
         displaySortMode();                          // 정렬 모드 표시
 
@@ -264,8 +247,8 @@
         let q2 = questions[i]['question2'];
         let createdAt = questions[i]['created_at'];
         let partiCount = questions[i]['participant_count'];
-        let likesCount = questions[i]['like_count'];
-        let nickname = questions[i]['nickname'];  // 추가된 작성자 정보
+        let likesCount = questions[i]['likes_count'];
+        let nickname = questions[i]['nickname'];
 
         let card =
             `<div id="${category}-${qId}" class="question-card card">
@@ -298,12 +281,64 @@
                 </div>`;
             $('#question-list').append(card);
         }
+    }
 
-        // 질문 카드를 클릭하면 질문 페이지로 이동
-        $(document).on('click', '.question-card', function () {
-            let questionId = $(this).find('.question-id').val()
-            window.location.href = `/question/${questionId}`;
+    // 질문 카드를 클릭하면 질문 페이지로 이동
+    $(document).on('click', '.question-card', function () {
+        let questionId = $(this).find('.question-id').val()
+        window.location.href = `/question/${questionId}`;
+    });
+
+    // 로그인 상태일 경우: 토큰 디코딩해서 사용자 정보 요청
+    function showLoginStatus() {
+        const token = localStorage.getItem("accessToken");
+        const authButtons = document.getElementById("auth-buttons");
+
+        if (!token) {
+            authButtons.innerHTML = `
+                <a class="button" href="/login">로그인</a>
+            `;
+            return;
+        }
+
+        $.ajax({
+            url: "/api/auth/userinfo",
+            type: "GET",
+            headers: {
+                "Authorization": `Bearer ${token}`
+            },
+            success: function (res) {
+                const nickname = res.nickname;
+
+                authButtons.innerHTML = `
+                    <div class="member-nickname"><span class="tag is-link is-light">${nickname}</span>님 안녕하세요</div>
+                    <form id="logout-form" style="margin-right: 10px;">
+                        <button class="button" type="button">로그아웃</button>
+                    </form>
+                    <a class="button" href="/mypage">마이 페이지</a>
+                `;
+
+                document.getElementById("logout-form").addEventListener("click", function (e) {
+                    e.preventDefault();
+                    localStorage.removeItem("accessToken");
+                    window.location.reload();
+                });
+            },
+            error: function () {
+                console.log("error");
+            }
         });
+    }
+
+    // 새로운 질문 등록
+    function newQuestionButton() {
+        console.log("hi");
+        isLogin = localStorage.getItem("accessToken");
+        if (isLogin) {
+            window.location.href = '/question/new';
+        } else {
+            alert('로그인 후 사용 가능합니다');
+        }
     }
 
 </script>

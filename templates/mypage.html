@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- jQuery -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <title>My Page</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.8.0/css/bulma.min.css">
     <link rel="stylesheet" href="../static/css/base.css">
@@ -17,16 +19,7 @@
             </a>
         </div>
         <div class="nav-main">
-            <div class="field is-grouped">
-                {% if current_user %}
-                    <div class="member-nickname"><span class="tag is-link is-light">{{ current_user['nickname'] }}</span>님 안녕하세요</div>
-
-                    <form action="{{ url_for('logout') }}" method="post" style="margin-right: 10px;">
-                        <button class="button">로그아웃</button>
-                    </form>
-                {% else %}
-                    <a class="button" href="{{ url_for('login') }}">로그인</a>
-                {% endif %}
+            <div class="field is-grouped" id="auth-buttons">
             </div>
         </div>
     </nav>
@@ -51,5 +44,50 @@
         <h2>좋아요 누른 밸런스 게임 목록</h2>
     </div>
 </section>
+<script>
+    $(document).ready(function () {
+        showLoginStatus();
+    })
+
+    // 로그인 상태일 경우: 토큰 디코딩해서 사용자 정보 요청
+    function showLoginStatus() {
+        const token = localStorage.getItem("accessToken");
+        const authButtons = document.getElementById("auth-buttons");
+
+        if (!token) {
+            authButtons.innerHTML = `
+                <a class="button" href="/login">로그인</a>
+            `;
+            return;
+        }
+
+        $.ajax({
+            url: "/api/auth/userinfo",
+            type: "GET",
+            headers: {
+                "Authorization": `Bearer ${token}`
+            },
+            success: function (res) {
+                const nickname = res.nickname;
+
+                authButtons.innerHTML = `
+                    <div class="member-nickname"><span class="tag is-link is-light">${nickname}</span>님 안녕하세요</div>
+                    <form id="logout-form" style="margin-right: 10px;">
+                        <button class="button" type="button">로그아웃</button>
+                    </form>
+                `;
+
+                document.getElementById("logout-form").addEventListener("click", function (e) {
+                    e.preventDefault();
+                    localStorage.removeItem("accessToken");
+                    window.location.reload();
+                });
+            },
+            error: function () {
+                console.log("error");
+            }
+        });
+    }
+</script>
 </body>
 </html>
